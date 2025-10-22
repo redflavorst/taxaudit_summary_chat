@@ -8,11 +8,12 @@ sys.path.append(str(Path(__file__).parent.parent / "create_db"))
 
 import hashlib
 from typing import List, Dict, Any, Optional
-from elasticsearch import Elasticsearch, ElasticsearchException
+from elasticsearch import Elasticsearch
 from elasticsearch.exceptions import (
     ConnectionError as ESConnectionError,
     NotFoundError as ESNotFoundError,
-    RequestError as ESRequestError
+    RequestError as ESRequestError,
+    TransportError as ElasticsearchException
 )
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, SearchParams

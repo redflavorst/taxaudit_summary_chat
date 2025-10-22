@@ -116,7 +116,7 @@ JSON 형식으로만 응답하세요:
                 "stream": False,
                 "format": "json"
             },
-            timeout=20
+            timeout=60
         )
         response.raise_for_status()  # HTTP 오류 발생 시 예외 발생
 
