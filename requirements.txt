@@ -6,6 +6,7 @@ Pillow
 psycopg2-binary
 PyMuPDF
 PyYAML
+python-dotenv
 qdrant-client
 requests
 sentence-transformers
