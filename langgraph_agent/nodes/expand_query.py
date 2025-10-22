@@ -113,7 +113,7 @@ JSON 형식으로만 응답하세요:
                 "stream": False,
                 "format": "json"
             },
-            timeout=20
+            timeout=60
         )
         
         if response.status_code == 200:

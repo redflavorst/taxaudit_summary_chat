@@ -87,7 +87,7 @@ def compose_answer(state: AgentState) -> AgentState:
                     "temperature": config.ollama_temperature
                 }
             },
-            timeout=30
+            timeout=60
         )
         
         if response.status_code == 200:

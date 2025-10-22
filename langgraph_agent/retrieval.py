@@ -281,8 +281,9 @@ class HybridRetriever:
         
         # should 조건 처리
         if should_clauses_for_ranking:
-            # 문서 필터 있음: should는 랭킹용만
+            # 문서 필터 있음: should는 랭킹용이지만 최소 1개는 매칭되어야 함
             es_query["bool"]["should"] = should_clauses_for_ranking
+            es_query["bool"]["minimum_should_match"] = 1
         elif should_clauses:
             # 문서 필터 없음: should가 매칭 조건
             es_query["bool"]["should"] = should_clauses

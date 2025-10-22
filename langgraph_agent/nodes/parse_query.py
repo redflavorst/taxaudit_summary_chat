@@ -152,7 +152,7 @@ JSON 형식:
                 "stream": False,
                 "format": "json"
             },
-            timeout=15
+            timeout=60
         )
         
         if response.status_code == 200:
