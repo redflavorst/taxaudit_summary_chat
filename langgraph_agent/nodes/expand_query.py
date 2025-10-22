@@ -10,7 +10,10 @@ import json
 import requests
 from typing import Dict, List
 from ..state import AgentState
+from ..logger import setup_logger
 from create_db.extract_meta import vocab_loader
+
+logger = setup_logger(__name__)
 
 
 def build_vocab_prompt() -> str:
@@ -115,28 +118,65 @@ JSON 형식으로만 응답하세요:
             },
             timeout=20
         )
-        
-        if response.status_code == 200:
-            result = response.json()
-            expansion = json.loads(result.get("response", "{}"))
-            
-            if not expansion.get("must_have"):
-                expansion["must_have"] = domain_tags[:1] if domain_tags else []
-            if not expansion.get("should_have"):
-                expansion["should_have"] = domain_tags[1:]
-            if not expansion.get("related_terms"):
-                expansion["related_terms"] = []
-            if not expansion.get("boost_weights"):
-                expansion["boost_weights"] = {}
-            
-            return expansion
-    
+        response.raise_for_status()  # HTTP 오류 발생 시 예외 발생
+
+    except requests.Timeout:
+        logger.error(f"LLM 요청 타임아웃 (20초): {ollama_url}")
+        return _fallback_expansion(slots)
+
+    except requests.ConnectionError as e:
+        logger.error(f"LLM 서버 연결 실패: {ollama_url} - {e}")
+        return _fallback_expansion(slots)
+
+    except requests.HTTPError as e:
+        logger.error(f"LLM HTTP 오류 (status: {e.response.status_code}): {e}")
+        return _fallback_expansion(slots)
+
+    except requests.RequestException as e:
+        logger.error(f"LLM 요청 실패: {e}", exc_info=True)
+        return _fallback_expansion(slots)
+
+    # JSON 파싱 및 검증
+    try:
+        result = response.json()
+        expansion = json.loads(result.get("response", "{}"))
+
+        # 필수 필드 검증
+        if not isinstance(expansion, dict):
+            logger.warning(f"LLM 응답이 dict가 아님: {type(expansion)}")
+            return _fallback_expansion(slots)
+
+        # 기본값 설정
+        expansion.setdefault("must_have", domain_tags[:1] if domain_tags else [])
+        expansion.setdefault("should_have", domain_tags[1:] if domain_tags else [])
+        expansion.setdefault("related_terms", [])
+        expansion.setdefault("boost_weights", {})
+
+        logger.info(f"LLM 쿼리 확장 성공: must={expansion['must_have']}")
+        return expansion
+
+    except json.JSONDecodeError as e:
+        logger.error(f"LLM 응답 JSON 파싱 실패: {e}")
+        logger.debug(f"원본 응답: {response.text[:200]}")
+        return _fallback_expansion(slots)
+
+    except KeyError as e:
+        logger.error(f"LLM 응답 필드 누락: {e}")
+        return _fallback_expansion(slots)
+
     except Exception as e:
-        print(f"[ExpandQuery] LLM 확장 실패: {e}")
-    
+        logger.exception(f"예상치 못한 오류: {e}")
+        return _fallback_expansion(slots)
+
+
+def _fallback_expansion(slots: Dict) -> Dict:
+    """LLM 실패 시 폴백 전략"""
+    domain_tags = slots.get("domain_tags", [])
+    logger.info(f"폴백 확장 사용: domain_tags={domain_tags}")
+
     return {
         "must_have": domain_tags[:1] if domain_tags else [],
-        "should_have": domain_tags[1:],
+        "should_have": domain_tags[1:] if domain_tags else [],
         "related_terms": [],
         "boost_weights": {}
     }
@@ -168,17 +208,17 @@ def expand_query(state: AgentState) -> AgentState:
     )
     
     state["slots"]["expansion"] = expansion
-    
+
     new_confidence = calculate_expansion_confidence(expansion)
     old_confidence = state["slots"].get("confidence", 0.0)
     state["slots"]["confidence"] = max(old_confidence, new_confidence)
-    
-    print(f"[ExpandQuery] 원본 질의: {query}")
-    print(f"[ExpandQuery] Must-have: {expansion.get('must_have', [])}")
-    print(f"[ExpandQuery] Should-have: {expansion.get('should_have', [])}")
-    print(f"[ExpandQuery] Related terms: {expansion.get('related_terms', [])}")
-    print(f"[ExpandQuery] Boost weights: {expansion.get('boost_weights', {})}")
-    print(f"[ExpandQuery] Confidence: {old_confidence:.2f} → {state['slots']['confidence']:.2f}")
+
+    logger.info(f"원본 질의: {query}")
+    logger.info(f"Must-have: {expansion.get('must_have', [])}")
+    logger.info(f"Should-have: {expansion.get('should_have', [])}")
+    logger.info(f"Related terms: {expansion.get('related_terms', [])}")
+    logger.debug(f"Boost weights: {expansion.get('boost_weights', {})}")
+    logger.info(f"Confidence: {old_confidence:.2f} → {state['slots']['confidence']:.2f}")
     
     return state
 
