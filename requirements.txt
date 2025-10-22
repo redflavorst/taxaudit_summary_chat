@@ -1,0 +1,12 @@
+elasticsearch
+langgraph
+numpy
+opencv-python
+Pillow
+psycopg2-binary
+PyMuPDF
+PyYAML
+qdrant-client
+requests
+sentence-transformers
+tqdm
