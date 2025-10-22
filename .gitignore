@@ -12,6 +12,9 @@ data_test*
 # Qdrant storage
 qdrant_storage/
 
+# Output folder
+output/
+
 # Python
 __pycache__/
 *.py[cod]
