@@ -43,22 +43,26 @@ class VocabLoader:
         self.industry_vocab = {}
         self.domain_tags_vocab = {}
         self.actions_vocab = {}
-        
+        self.context_keywords = {}  # 조사 대상/배경
+        self.target_keywords = {}   # 적출 항목
+
         self.canon_industry = {}
         self.canon_domain = {}
         self.canon_actions = {}
-        
+
         self.inv_industry = {}
         self.inv_domain = {}
         self.inv_actions = {}
-        
+
         self._load_all()
     
     def _load_all(self):
         industry_path = VOCAB_DIR / "industry.yaml"
         domain_path = VOCAB_DIR / "domain_tags.yaml"
         actions_path = VOCAB_DIR / "actions.yaml"
-        
+        context_path = VOCAB_DIR / "context_keywords.yaml"
+        target_path = VOCAB_DIR / "target_keywords.yaml"
+
         if industry_path.exists():
             with open(industry_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
@@ -67,19 +71,45 @@ class VocabLoader:
                         name = ind["name"]
                         subs = ind.get("subs", [])
                         self.industry_vocab[name] = {"subs": subs}
-        
+
         if domain_path.exists():
             with open(domain_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if data and "domain_tags" in data:
                     self.domain_tags_vocab = data["domain_tags"]
-        
+
         if actions_path.exists():
             with open(actions_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if data and "actions" in data:
                     self.actions_vocab = data["actions"]
-        
+
+        # 조사 대상/배경 사전 로드
+        if context_path.exists():
+            with open(context_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if data and "context_keywords" in data:
+                    # 중첩 구조 평탄화
+                    for category, keywords in data["context_keywords"].items():
+                        for keyword, meta in keywords.items():
+                            self.context_keywords[keyword] = {
+                                **meta,
+                                "category": category
+                            }
+
+        # 적출 항목 사전 로드
+        if target_path.exists():
+            with open(target_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if data and "target_keywords" in data:
+                    # 중첩 구조 평탄화
+                    for category, keywords in data["target_keywords"].items():
+                        for keyword, meta in keywords.items():
+                            self.target_keywords[keyword] = {
+                                **meta,
+                                "category": category
+                            }
+
         self.canon_domain, self.inv_domain = build_vocab(self.domain_tags_vocab)
         self.canon_actions, self.inv_actions = build_vocab(self.actions_vocab)
 
