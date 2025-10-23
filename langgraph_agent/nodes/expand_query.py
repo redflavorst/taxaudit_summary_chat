@@ -184,29 +184,45 @@ def _fallback_expansion(slots: Dict) -> Dict:
 
 def expand_query(state: AgentState) -> AgentState:
     """
-    Query Expansion 노드: LLM 기반 쿼리 확장
-    
+    Query Expansion 노드: LLM 기반 쿼리 확장 + 키워드 역할 분류
+
     1. LLM에 도메인 사전 주입
     2. must_have / should_have / related_terms 추출
     3. boost_weights 계산
-    4. state["slots"]["expansion"] 필드에 저장
+    4. ✨ 키워드 역할 분류 (context vs target)
+    5. state["slots"]["expansion"] 필드에 저장
     """
     from ..config import config
-    
+    from ..keyword_classifier import classify_keyword_roles
+
     query = state.get("normalized_query", state["user_query"])
     slots = state.get("slots", {})
-    
+
     if state.get("intent") != "case_lookup":
         state["slots"]["expansion"] = None
         return state
-    
+
     expansion = expand_query_with_llm(
         query=query,
         slots=slots,
         ollama_url=config.ollama_base_url,
         model=config.ollama_model
     )
-    
+
+    # ✨ 키워드 역할 분류
+    must_keywords = expansion.get("must_have", [])
+    if len(must_keywords) >= 1:
+        keyword_roles = classify_keyword_roles(
+            query=query,
+            keywords=must_keywords,
+            ollama_url=config.ollama_base_url,
+            model=config.ollama_model
+        )
+        expansion["keyword_roles"] = keyword_roles
+
+        logger.info(f"키워드 역할 분류: context={keyword_roles.get('context_keywords')}, target={keyword_roles.get('target_keywords')}")
+        logger.info(f"분류 신뢰도: {keyword_roles.get('confidence', 0.0):.1%}, 확인 필요: {keyword_roles.get('needs_confirmation')}")
+
     state["slots"]["expansion"] = expansion
 
     new_confidence = calculate_expansion_confidence(expansion)
@@ -219,7 +235,7 @@ def expand_query(state: AgentState) -> AgentState:
     logger.info(f"Related terms: {expansion.get('related_terms', [])}")
     logger.debug(f"Boost weights: {expansion.get('boost_weights', {})}")
     logger.info(f"Confidence: {old_confidence:.2f} → {state['slots']['confidence']:.2f}")
-    
+
     return state
 
 

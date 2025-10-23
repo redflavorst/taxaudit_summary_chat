@@ -360,48 +360,79 @@ class HybridRetriever:
             4. 교집합 문서에서 키워드 빈도 계산
             5. 필터링된 문서들 내에서 상세 검색
         """
-        # Step 1: must_have + should_have 키워드로 문서 필터링
+        # Step 1: 키워드 역할 기반 문서 필터링
         target_doc_ids = None
         keyword_freq = None
-        
+
         if expansion and expansion.get("must_have"):
             must_keywords = expansion["must_have"]
-            
-            # must_have 키워드만 문서 필터링에 사용 (should_have는 제외)
-            search_keywords = must_keywords[:3]  # 상위 3개만
-            
-            if len(search_keywords) >= 1:  # 키워드 1개 이상이면 문서 필터링
-                print(f"[RetrieveFindings] 키워드별 문서 검색 시작: {search_keywords}")
-                
-                keyword_docs = {}
-                for kw in search_keywords:
-                    docs = self._find_docs_by_keyword(kw, top_n=50)
-                    keyword_docs[kw] = set([doc_id for doc_id, _ in docs])
-                    print(f"  - '{kw}': {len(keyword_docs[kw])}개 문서")
-                
-                # 교집합/합집합 계산
-                if keyword_docs:
-                    if len(search_keywords) >= 2:
-                        # 키워드 2개 이상: 교집합 우선
-                        intersection = set.intersection(*keyword_docs.values())
-                        print(f"[RetrieveFindings] 교집합 문서: {len(intersection)}개")
-                        
-                        if intersection:
-                            target_doc_ids = list(intersection)
-                            
-                            # 교집합 문서에서 키워드 빈도 계산
-                            print(f"[RetrieveFindings] 키워드 빈도 계산 중...")
-                            keyword_freq = self._calculate_keyword_frequency(target_doc_ids, must_keywords)
-                            print(f"[RetrieveFindings] 키워드 빈도: {keyword_freq}")
-                        else:
-                            # 폴백: 합집합 (OR)
-                            union = set.union(*keyword_docs.values())
-                            print(f"[RetrieveFindings] 교집합 없음 → 합집합으로 폴백: {len(union)}개")
-                            target_doc_ids = list(union)[:30]
+            keyword_roles = expansion.get("keyword_roles", {})
+
+            context_kws = keyword_roles.get("context_keywords", [])
+            target_kws = keyword_roles.get("target_keywords", [])
+
+            # 역할 분류 실패 시 기존 방식 폴백
+            if not context_kws and not target_kws:
+                context_kws = []
+                target_kws = must_keywords
+
+            print(f"[RetrieveFindings] 키워드 역할: context={context_kws}, target={target_kws}")
+
+            # 전략 1: context + target (계층적 검색)
+            if context_kws and target_kws:
+                print(f"[RetrieveFindings] 계층적 검색: context로 문서 필터링, target으로 블록 필터링")
+
+                # context 키워드로 문서 필터링 (교집합)
+                context_docs = {}
+                for ctx_kw in context_kws:
+                    docs = self._find_docs_by_keyword(ctx_kw, top_n=50)
+                    context_docs[ctx_kw] = set([doc_id for doc_id, _ in docs])
+                    print(f"  - context '{ctx_kw}': {len(context_docs[ctx_kw])}개 문서")
+
+                # context 교집합 (모든 context 조건 만족)
+                if len(context_docs) >= 2:
+                    intersection = set.intersection(*context_docs.values())
+                    if intersection:
+                        target_doc_ids = list(intersection)
+                        print(f"[RetrieveFindings] context 교집합: {len(target_doc_ids)}개 문서")
                     else:
-                        # 키워드 1개: 해당 키워드 포함 문서만
-                        target_doc_ids = list(keyword_docs[search_keywords[0]])
-                        print(f"[RetrieveFindings] 단일 키워드 문서: {len(target_doc_ids)}개")
+                        # 교집합 없으면 합집합
+                        union = set.union(*context_docs.values())
+                        target_doc_ids = list(union)[:50]
+                        print(f"[RetrieveFindings] context 합집합 (폴백): {len(target_doc_ids)}개 문서")
+                elif len(context_docs) == 1:
+                    target_doc_ids = list(list(context_docs.values())[0])
+                    print(f"[RetrieveFindings] 단일 context: {len(target_doc_ids)}개 문서")
+
+            # 전략 2: target만 (OR 검색)
+            elif target_kws:
+                print(f"[RetrieveFindings] target만 존재 → OR 검색 (각 target의 문서 합집합)")
+
+                # 각 target 키워드별로 문서 검색
+                target_docs = {}
+                for tgt_kw in target_kws[:3]:  # 최대 3개
+                    docs = self._find_docs_by_keyword(tgt_kw, top_n=50)
+                    target_docs[tgt_kw] = set([doc_id for doc_id, _ in docs])
+                    print(f"  - target '{tgt_kw}': {len(target_docs[tgt_kw])}개 문서")
+
+                # 합집합 (OR 검색)
+                if target_docs:
+                    union = set.union(*target_docs.values())
+                    target_doc_ids = list(union)[:100]  # target 전용은 더 많이
+                    print(f"[RetrieveFindings] target 합집합 (OR): {len(target_doc_ids)}개 문서")
+
+            # 전략 3: context만 (드문 경우)
+            elif context_kws:
+                print(f"[RetrieveFindings] context만 존재 → 일반 검색")
+                context_docs = {}
+                for ctx_kw in context_kws:
+                    docs = self._find_docs_by_keyword(ctx_kw, top_n=50)
+                    context_docs[ctx_kw] = set([doc_id for doc_id, _ in docs])
+
+                if context_docs:
+                    union = set.union(*context_docs.values())
+                    target_doc_ids = list(union)[:50]
+                    print(f"[RetrieveFindings] context 문서: {len(target_doc_ids)}개")
         
         # Step 2: 상세 검색 쿼리 구성
         should_clauses_for_ranking = None

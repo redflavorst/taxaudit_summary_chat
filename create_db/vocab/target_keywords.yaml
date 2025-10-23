@@ -1,0 +1,167 @@
+# 적출 항목 키워드 사전
+# 역할: 실제 찾고자 하는 적출 내용 (블록 레벨 필터링)
+
+target_keywords:
+  # ===== 손익 계정과목 =====
+  손익계정:
+    접대비:
+      synonyms: [접대비용, 접대경비, 교제비, 향응비]
+      category: 비용
+      related_codes: ["20101", "20102"]
+    기부금:
+      synonyms: [기부금지출, 기부비용, 기부]
+      category: 비용
+      related_codes: ["20201", "20202"]
+    감가상각비:
+      synonyms: [감가상각, 감가상각비용, 상각비]
+      category: 비용
+      related_codes: ["30101"]
+    광고선전비:
+      synonyms: [광고비, 선전비, 마케팅비용, 광고선전비용]
+      category: 비용
+    복리후생비:
+      synonyms: [복리후생, 후생비, 복지비용]
+      category: 비용
+    급여:
+      synonyms: [인건비, 급여비용, 임금, 급여지급액]
+      category: 비용
+    퇴직급여:
+      synonyms: [퇴직금, 퇴직급여충당금, 퇴직위로금]
+      category: 비용
+    외주비:
+      synonyms: [외주가공비, 외주용역비, 용역비]
+      category: 비용
+    임차료:
+      synonyms: [임대료, 지급임차료, 차입료]
+      category: 비용
+    차입금이자:
+      synonyms: [이자비용, 지급이자, 차입이자]
+      category: 비용
+    대손충당금:
+      synonyms: [대손상각비, 대손비용, 대손금]
+      category: 비용
+    재고자산평가손실:
+      synonyms: [재고평가손실, 재고감모손실]
+      category: 비용
+
+    매출:
+      synonyms: [매출액, 수익, 매출수익]
+      category: 수익
+    이자수익:
+      synonyms: [수입이자, 이자소득]
+      category: 수익
+    배당금수익:
+      synonyms: [배당수익, 수입배당금]
+      category: 수익
+
+  # ===== 재무상태표 계정 =====
+  재무상태계정:
+    재고자산:
+      synonyms: [재고, 상품, 제품, 원재료, 재공품]
+      category: 자산
+    매출채권:
+      synonyms: [외상매출금, 받을어음, 미수금]
+      category: 자산
+    유형자산:
+      synonyms: [고정자산, 토지, 건물, 기계장치, 차량운반구]
+      category: 자산
+    무형자산:
+      synonyms: [영업권, 특허권, 상표권, 개발비]
+      category: 자산
+    투자자산:
+      synonyms: [장기투자, 지분투자, 투자주식]
+      category: 자산
+
+    매입채무:
+      synonyms: [외상매입금, 지급어음, 미지급금]
+      category: 부채
+    차입금:
+      synonyms: [단기차입금, 장기차입금, 대출금]
+      category: 부채
+
+    자본금:
+      synonyms: [납입자본, 출자금]
+      category: 자본
+    이익잉여금:
+      synonyms: [이월이익잉여금, 미처분이익잉여금]
+      category: 자본
+
+  # ===== 세무 조정 항목 =====
+  세무조정:
+    미환류소득:
+      synonyms: [미환류, 유보소득, 사내유보]
+      description: 기업소득 환류세제
+    대리납부:
+      synonyms: [원천징수, 원천세, 소득세대리납부]
+      description: 원천징수 의무
+    익금산입:
+      synonyms: [익금가산, 소득가산]
+      description: 과세소득 증가
+    손금불산입:
+      synonyms: [손금부인, 비용부인]
+      description: 손금 미인정
+    손금산입:
+      synonyms: [손금인정, 비용인정]
+      description: 손금 인정
+    세액공제:
+      synonyms: [공제, 세액감면, 세액공제액]
+      description: 세액에서 차감
+    가산세:
+      synonyms: [신고불성실가산세, 납부지연가산세, 과소신고가산세]
+      description: 패널티
+
+  # ===== 특수 거래 =====
+  특수거래:
+    부당행위계산부인:
+      synonyms: [부당행위, 시가초과, 시가미달, 우회지급]
+      description: 특수관계자 거래 부인
+    접대비한도초과:
+      synonyms: [접대비한도, 접대비과다]
+    기부금한도초과:
+      synonyms: [기부금한도, 기부금과다]
+    인정상여:
+      synonyms: [상여처분, 소득처분, 인정배당]
+      description: 법인세법상 소득처분
+    가지급금인정이자:
+      synonyms: [가지급금이자, 인정이자]
+
+  # ===== 자산 관련 =====
+  자산거래:
+    자산양도:
+      synonyms: [자산매각, 자산처분, 양도]
+    자산평가:
+      synonyms: [평가, 감정평가, 자산재평가]
+    자산수증:
+      synonyms: [수증, 증여, 무상취득]
+    감자:
+      synonyms: [자본감소, 감자처리]
+    증자:
+      synonyms: [자본증가, 증자처리, 유상증자, 무상증자]
+
+  # ===== 특수 상황 관련 =====
+  특수상황처리:
+    합병차익:
+      synonyms: [합병이익, 합병평가차익]
+    합병차손:
+      synonyms: [합병손실]
+    분할:
+      synonyms: [분할합병, 회사분할]
+    청산:
+      synonyms: [청산소득, 해산]
+    도산:
+      synonyms: [부도, 파산]
+
+  # ===== 기타 세무 이슈 =====
+  기타세무:
+    이중장부:
+      synonyms: [이중회계, 장부누락, 비자금]
+    매출누락:
+      synonyms: [매출탈루, 수입금액누락, 매출제외]
+    가공경비:
+      synonyms: [가공비용, 허위경비, 가공세금계산서]
+    현금매출:
+      synonyms: [현금거래, 현금수입]
+    명의위장:
+      synonyms: [차명, 차명거래, 명의대여]
+    편법증여:
+      synonyms: [우회증여, 증여세회피]
