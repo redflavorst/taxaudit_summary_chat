@@ -42,36 +42,31 @@ def block_score_from_chunks(chunks: List[ChunkHit], top_k: int = 3) -> float:
     return sum(c.score_combined for c in top_chunks) / len(top_chunks)
 
 
-def determine_block_level_keywords(keywords: List[str]) -> tuple[str, List[str]]:
+def get_block_filter_keywords(expansion: Dict) -> tuple[List[str], List[str]]:
     """
-    위치 기반으로 블록 레벨 필수 키워드 결정
-    
+    역할 기반 블록 필터링 키워드 추출
+
     전략:
-    - 첫 번째 키워드 = 문서 레벨 컨텍스트 (예: "합병법인")
-    - 나머지 키워드 = 블록 레벨 필수 (OR 관계) (예: ["미환류소득", "대리납부"])
-    
-    자연스러운 질의 구조:
-    - "합병법인의 접대비 적출사례" → 합병법인(문서) + 접대비(블록)
-    - "합병법인의 미환류소득, 대리납부 사례" → 합병법인(문서) + 미환류소득 OR 대리납부(블록)
-    
+    - context_keywords: 문서 레벨 (이미 retrieval.py에서 필터링됨)
+    - target_keywords: 블록 레벨 필터링 (OR 관계)
+
     Args:
-        keywords: 검색 키워드 리스트 (must_have)
-    
+        expansion: 쿼리 확장 결과
+
     Returns:
-        (doc_level_keyword, block_level_keywords)
+        (context_keywords, target_keywords)
     """
-    if not keywords:
-        return None, []
-    
-    if len(keywords) == 1:
-        # 단일 키워드는 블록 필수
-        return None, keywords
-    
-    # 첫 번째 = 문서 레벨, 나머지 = 블록 레벨 (OR)
-    doc_level_kw = keywords[0]
-    block_level_kws = keywords[1:]
-    
-    return doc_level_kw, block_level_kws
+    keyword_roles = expansion.get("keyword_roles", {})
+
+    context_kws = keyword_roles.get("context_keywords", [])
+    target_kws = keyword_roles.get("target_keywords", [])
+
+    # Fallback: 역할 분류 실패 시 must_have를 모두 target으로 사용
+    if not context_kws and not target_kws:
+        must_have = expansion.get("must_have", [])
+        target_kws = must_have
+
+    return context_kws, target_kws
 
 
 def promote_to_blocks(state: AgentState) -> AgentState:
@@ -85,11 +80,14 @@ def promote_to_blocks(state: AgentState) -> AgentState:
     chunks_착안 = section_groups.get("착안", [])
     chunks_기법 = section_groups.get("기법", [])
     
-    # 사용자 질의의 핵심 키워드 (필터링용)
+    # 역할 기반 키워드 추출
     slots = state.get("slots", {})
     expansion = slots.get("expansion", {})
-    must_keywords = expansion.get("must_have", [])
-    
+    context_keywords, target_keywords = get_block_filter_keywords(expansion)
+
+    # 모든 키워드 (로깅 및 카운팅용)
+    all_keywords = context_keywords + target_keywords
+
     if not chunks_착안 and not chunks_기법:
         print("[PromoteToBlocks] 청크가 없어 스킵")
         state["block_ranking"] = []
@@ -126,34 +124,26 @@ def promote_to_blocks(state: AgentState) -> AgentState:
             ranked.append((fid, score, combined_chunks))
     
     ranked.sort(key=lambda x: x[1], reverse=True)
-    
-    # 키워드 전략 결정: 위치 기반
-    doc_level_kw = None
-    block_level_keywords = []
-    enable_filtering = False  # 키워드 필터링 활성화 여부
-    
-    if must_keywords:
-        doc_level_kw, block_level_keywords = determine_block_level_keywords(must_keywords)
-        
-        # 키워드 2개 이상일 때만 필터링 활성화
-        enable_filtering = len(must_keywords) >= 2
-        
-        print(f"[PromoteToBlocks] 키워드 전략 (위치 기반):")
-        if len(must_keywords) == 1:
-            print(f"  - 단일 키워드: '{must_keywords[0]}' (필터링 없음)")
-        else:
-            if doc_level_kw:
-                print(f"  - 문서 컨텍스트: '{doc_level_kw}'")
-            if block_level_keywords:
-                print(f"  - 블록 필수 (OR): {block_level_keywords}")
+
+    # 블록 필터링 활성화 여부: target_keywords가 있을 때만
+    enable_filtering = len(target_keywords) > 0
+
+    print(f"[PromoteToBlocks] 키워드 전략 (역할 기반):")
+    if context_keywords:
+        print(f"  - 조사 대상/배경 (문서 레벨): {context_keywords}")
+    if target_keywords:
+        print(f"  - 적출 항목 (블록 필터링, OR): {target_keywords}")
+        print(f"  - 블록 필터링 활성화: {enable_filtering}")
+    else:
+        print(f"  - 블록 필터링 없음 (target_keywords 없음)")
     
     # 블록 레벨 키워드 필터링
     doc_counts = defaultdict(int)
     final_blocks = []
     excluded_blocks = []
-    
-    # 키워드별 블록 매칭 건수 추적
-    keyword_block_counts = {kw: 0 for kw in must_keywords} if must_keywords else {}
+
+    # 키워드별 블록 매칭 건수 추적 (모든 키워드 포함)
+    keyword_block_counts = {kw: 0 for kw in all_keywords} if all_keywords else {}
     
     for fid, score, chunks in ranked:
         if not chunks:
@@ -175,63 +165,50 @@ def promote_to_blocks(state: AgentState) -> AgentState:
             source_sections=sections
         )
         
-        # 키워드 필터링: must_have 키워드 매칭 확인
+        # 키워드 매칭 확인 (all_keywords)
         block_text = " ".join([c.text for c in chunks])
         matched_keywords = []
-        
-        if must_keywords:
-            for kw in must_keywords:
+
+        if all_keywords:
+            for kw in all_keywords:
                 if kw in block_text:
                     matched_keywords.append(kw)
                     # 키워드별 블록 매칭 건수 증가
                     keyword_block_counts[kw] += 1
         
-        # 전략: 위치 기반 키워드 필터링 (키워드 2개 이상일 때만)
+        # 전략: 역할 기반 블록 필터링
         if not enable_filtering:
-            # 키워드 1개 또는 없음: 필터링 없이 모든 블록 포함
+            # target_keywords 없음: 필터링 없이 모든 블록 포함
             if doc_counts[doc_id] >= config.max_blocks_per_doc:
                 continue
-            
+
             doc_counts[doc_id] += 1
             final_blocks.append(block)
-            
+
             if len(final_blocks) >= config.block_final_top_n:
                 break
         else:
-            # 키워드 2개 이상: 필터링 활성화
-            # - 첫 번째 키워드(문서 레벨) = 문서 교집합에서 이미 확인됨, 블록에 없어도 OK
-            # - 나머지 키워드(블록 레벨) = 블록에 최소 1개 이상 있어야 함 (OR 관계)
-            if block_level_keywords:
-                # 블록 필수 키워드 중 최소 1개 매칭되면 완전매칭
-                matched_block_kws = [kw for kw in block_level_keywords if kw in matched_keywords]
-                is_full_match = len(matched_block_kws) > 0
-                is_partial_match = doc_level_kw in matched_keywords if doc_level_kw else False
-            else:
-                is_full_match = True
-                is_partial_match = False
-            
+            # target_keywords 있음: 블록에 최소 1개 이상 target 매칭 필요 (OR 관계)
+            matched_target_kws = [kw for kw in target_keywords if kw in matched_keywords]
+            is_full_match = len(matched_target_kws) > 0
+
             # 디버깅 로그
-            match_status = "완전매칭" if is_full_match else ("부분매칭" if is_partial_match else "불일치")
-            matched_block_kws = [kw for kw in block_level_keywords if kw in matched_keywords]
-            print(f"    [필터링] {fid}: 블록필수={block_level_keywords}, 매칭={matched_block_kws} ({match_status})")
-            
+            match_status = "완전매칭" if is_full_match else "불일치"
+            print(f"    [필터링] {fid}: target필수={target_keywords}, 매칭={matched_target_kws} ({match_status})")
+
             if is_full_match:
                 # 완전 매칭: 메인 답변에 포함
                 if doc_counts[doc_id] >= config.max_blocks_per_doc:
                     excluded_blocks.append(block)
                     continue
-                
+
                 doc_counts[doc_id] += 1
                 final_blocks.append(block)
-                
+
                 if len(final_blocks) >= config.block_final_top_n:
                     break
-            elif is_partial_match:
-                # 부분 매칭: 제외 블록에 포함 (추가 정보로 제공)
-                print(f"      → 부분매칭으로 제외 (필요: {must_keywords}, 매칭: {matched_keywords})")
-                excluded_blocks.append(block)
             else:
-                # 불일치: 제외
+                # 불일치: 제외 블록에 포함
                 excluded_blocks.append(block)
     
     state["block_ranking"] = final_blocks

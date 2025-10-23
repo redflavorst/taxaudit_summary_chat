@@ -40,7 +40,16 @@ def retrieve_findings(state: AgentState) -> AgentState:
     
     print(f"[RetrieveFindings] 검색된 findings: {len(findings)}개")
     if expansion:
-        print(f"[RetrieveFindings] 확장된 쿼리 사용 - must: {expansion.get('must_have', [])}, should: {expansion.get('should_have', [])}")
+        keyword_roles = expansion.get("keyword_roles", {})
+        context_kws = keyword_roles.get("context_keywords", [])
+        target_kws = keyword_roles.get("target_keywords", [])
+        should_kws = expansion.get("should_have", [])
+
+        if context_kws or target_kws:
+            print(f"[RetrieveFindings] 확장된 쿼리 - context: {context_kws}, target: {target_kws}, should: {should_kws}")
+        else:
+            # Fallback 로깅 (keyword_roles 없음)
+            print(f"[RetrieveFindings] 확장된 쿼리 - must: {expansion.get('must_have', [])}, should: {should_kws}")
     for i, f in enumerate(findings[:5], 1):
         print(f"  {i}. {f.finding_id} - {f.item} (score: {f.score_combined:.3f})")
     

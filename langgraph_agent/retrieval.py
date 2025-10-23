@@ -364,18 +364,22 @@ class HybridRetriever:
         target_doc_ids = None
         keyword_freq = None
 
-        if expansion and expansion.get("must_have"):
-            must_keywords = expansion["must_have"]
-            keyword_roles = expansion.get("keyword_roles", {})
+        # 키워드 역할 추출
+        keyword_roles = expansion.get("keyword_roles", {}) if expansion else {}
+        context_kws = keyword_roles.get("context_keywords", [])
+        target_kws = keyword_roles.get("target_keywords", [])
 
-            context_kws = keyword_roles.get("context_keywords", [])
-            target_kws = keyword_roles.get("target_keywords", [])
-
-            # 역할 분류 실패 시 기존 방식 폴백
-            if not context_kws and not target_kws:
+        # Fallback: 역할 분류 실패 시 must_have를 모두 target으로 사용
+        if expansion and not context_kws and not target_kws:
+            must_keywords = expansion.get("must_have", [])
+            if must_keywords:
                 context_kws = []
                 target_kws = must_keywords
 
+        # 모든 키워드 (context + target)
+        all_keywords = context_kws + target_kws
+
+        if all_keywords:
             print(f"[RetrieveFindings] 키워드 역할: context={context_kws}, target={target_kws}")
 
             # 전략 1: context + target (계층적 검색)
@@ -436,15 +440,15 @@ class HybridRetriever:
         
         # Step 2: 상세 검색 쿼리 구성
         should_clauses_for_ranking = None
-        
-        if expansion and expansion.get("must_have"):
-            must_keywords = expansion["must_have"]
+
+        if expansion and all_keywords:
+            # all_keywords = context + target (모든 키워드)
             should_keywords = expansion.get("should_have", []) + expansion.get("related_terms", [])
             boost_weights = expansion.get("boost_weights", {})
-            
-            # must_have를 should로 변경 (OR 검색, boost로 우선순위 조정)
+
+            # all_keywords를 should로 변경 (OR 검색, boost로 우선순위 조정)
             should_clauses = []
-            for kw in must_keywords:
+            for kw in all_keywords:
                 boost = boost_weights.get(kw, 3.0)
                 should_clauses.append({
                     "multi_match": {
@@ -518,8 +522,8 @@ class HybridRetriever:
         # 키워드 개수에 따라 검색 전략 변경
         # - 1개: BM25만 (정확한 텍스트 매칭)
         # - 2개 이상: 하이브리드 (BM25 + Vector)
-        must_have_count = len(expansion.get("must_have", [])) if expansion else 0
-        use_vector_search = must_have_count >= 2
+        keyword_count = len(all_keywords) if all_keywords else 0
+        use_vector_search = keyword_count >= 2
         
         if use_vector_search:
             query_vec = self._get_query_embedding_cached(query)

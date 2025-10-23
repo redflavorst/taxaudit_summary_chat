@@ -43,35 +43,60 @@ def compose_answer(state: AgentState) -> AgentState:
         state["answer"] = "검색 결과가 없습니다. 질문을 더 구체적으로 작성해주세요."
         return state
     
-    # 검색 전략 메시지 생성
+    # 검색 전략 메시지 생성 (역할 기반)
     search_strategy = ""
     slots = state.get("slots", {})
     expansion = slots.get("expansion", {})
-    must_keywords = expansion.get("must_have", [])
+    keyword_roles = expansion.get("keyword_roles", {})
+    context_keywords = keyword_roles.get("context_keywords", [])
+    target_keywords = keyword_roles.get("target_keywords", [])
+
+    # Fallback: 역할 분류 없으면 must_have 사용
+    if not context_keywords and not target_keywords:
+        must_keywords = expansion.get("must_have", [])
+        target_keywords = must_keywords
+
+    all_keywords = context_keywords + target_keywords
     keyword_block_counts = state.get("keyword_block_counts", {})
-    show_strategy = len(must_keywords) >= 2  # 키워드 2개 이상일 때만 전략 표시
-    
+
+    # 키워드가 있을 때만 전략 표시
+    show_strategy = len(all_keywords) >= 1
+
     if show_strategy:
-        doc_kw = must_keywords[0]
-        block_kws = must_keywords[1:]
-        
-        if len(block_kws) == 1:
-            search_strategy = f"\n> 💡 **검색 전략**: '{doc_kw}' 문서 내에서 '{block_kws[0]}' 포함 사례를 검색했습니다.\n"
-        else:
-            block_kws_str = "' 또는 '".join(block_kws)
-            search_strategy = f"\n> 💡 **검색 전략**: '{doc_kw}' 문서 내에서 '{block_kws_str}' 포함 사례를 검색했습니다.\n"
-        
-        search_strategy += "> 다른 우선순위를 원하시면 질의 순서를 조정해주세요.\n"
-        
+        search_strategy = "\n> 💡 **검색 전략**:\n"
+
+        # 전략 1: context + target
+        if context_keywords and target_keywords:
+            context_str = "', '".join(context_keywords)
+            target_str = "' 또는 '".join(target_keywords) if len(target_keywords) > 1 else target_keywords[0]
+            search_strategy += f"> - 조사 대상/배경: '{context_str}'\n"
+            search_strategy += f"> - 적출 항목: '{target_str}'\n"
+            search_strategy += "> - '{context_str}' 문서 내에서 '{target_str}' 포함 사례를 검색했습니다.\n"
+
+        # 전략 2: target only (OR 검색)
+        elif target_keywords:
+            if len(target_keywords) == 1:
+                search_strategy += f"> - 적출 항목: '{target_keywords[0]}'\n"
+                search_strategy += f"> - '{target_keywords[0]}' 포함 사례를 검색했습니다.\n"
+            else:
+                target_str = "', '".join(target_keywords)
+                search_strategy += f"> - 적출 항목: '{target_str}'\n"
+                search_strategy += f"> - OR 검색: 각 항목별 사례를 합쳐서 검색했습니다.\n"
+
+        # 전략 3: context only
+        elif context_keywords:
+            context_str = "', '".join(context_keywords)
+            search_strategy += f"> - 조사 대상/배경: '{context_str}'\n"
+            search_strategy += f"> - '{context_str}' 관련 사례를 검색했습니다.\n"
+
         # 키워드별 블록 건수 추가
         if keyword_block_counts:
-            search_strategy += ">\n"
-            search_strategy += "> **검색된 사례 건수**:\n"
-            for kw in must_keywords:
+            search_strategy += ">\n> **검색된 사례 건수**:\n"
+            for kw in all_keywords:
                 count = keyword_block_counts.get(kw, 0)
-                search_strategy += f"> - '{kw}' 관련 적출 사례: **{count}건**\n"
-            search_strategy += ">\n"
-            search_strategy += "> 특정 키워드로 재질의하시면 해당 사례만 상세히 확인하실 수 있습니다.\n"
+                kw_type = "조사대상" if kw in context_keywords else "적출항목"
+                search_strategy += f"> - [{kw_type}] '{kw}': **{count}건**\n"
+            search_strategy += ">\n> 특정 키워드로 재질의하시면 해당 사례만 상세히 확인하실 수 있습니다.\n"
     
     prompt = ANSWER_TEMPLATE.format(
         query=state["user_query"],

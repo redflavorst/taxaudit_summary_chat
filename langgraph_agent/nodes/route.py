@@ -13,23 +13,34 @@ def should_clarify(state: AgentState) -> bool:
     slots = state.get("slots", {})
     confidence = slots.get("confidence", 0.0)
     expansion = slots.get("expansion")
-    
-    if expansion and expansion.get("must_have"):
-        return False
-    
+
+    # 키워드가 있으면 Clarify 스킵 (우선 검색 진행)
+    if expansion:
+        keyword_roles = expansion.get("keyword_roles", {})
+        context_kws = keyword_roles.get("context_keywords", [])
+        target_kws = keyword_roles.get("target_keywords", [])
+
+        # Fallback: keyword_roles 없으면 must_have 확인
+        if not context_kws and not target_kws:
+            must_have = expansion.get("must_have", [])
+            if must_have:
+                return False
+        elif context_kws or target_kws:
+            return False
+
     if confidence < CONFIDENCE_THRESHOLD:
         return True
-    
+
     has_any_slot = any([
         slots.get("industry_sub"),
         slots.get("domain_tags"),
         slots.get("actions"),
         slots.get("code")
     ])
-    
+
     if not has_any_slot:
         return True
-    
+
     return False
 
 
