@@ -1,0 +1,219 @@
+╔════════════════════════════════════════════════════════════════════════════════════╗
+║                    TAX AUDIT SUMMARY CHAT - SYSTEM ARCHITECTURE                     ║
+╚════════════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                            1. ENTRY POINT                                            │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                  langgraph_agent/main.py::run_query()                                │
+│                  - Interactive Mode (CLI with loop)                                  │
+│                  - Single Query Mode (one query, exit)                               │
+│                  - Programmatic Mode (imported function)                             │
+└──────────────────────────────────────┬──────────────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                    2. LANGGRAPH AGENT PIPELINE (graph.py)                            │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│   ┌──────────┐     ┌───────────────┐     ┌───────────────┐                          │
+│   │preprocess│────▶│  parse_query  │────▶│expand_query   │                          │
+│   └──────────┘     └───────────────┘     └────────┬──────┘                          │
+│                                                    │                                 │
+│                                                    ▼                                 │
+│                                            ┌───────────────┐                         │
+│                                            │    route      │                         │
+│                                            └──┬────────┬───┘                         │
+│                                               │        │                             │
+│                        ┌──────────────────────┘        └─────────────────┐           │
+│                        │                                                 │           │
+│                        ▼                                                 ▼           │
+│                   ┌──────────┐                                      ┌─────────┐     │
+│                   │ clarify  │                                      │explain  │     │
+│                   │  (END)   │                                      │(skip)   │     │
+│                   └──────────┘                                      └────┬────┘     │
+│                                                                          │          │
+│        If confidence >= 0.4 and intent == "case_lookup":                │          │
+│        ┌────────────────────┐                                           │          │
+│        ▼                     │                                           │          │
+│   ┌──────────────────┐       │                                          │          │
+│   │retrieve_findings │       │                                          │          │
+│   └────────┬─────────┘       │                                          │          │
+│            ▼                 │                                          │          │
+│   ┌──────────────────┐       │                                          │          │
+│   │retrieve_chunks  │       │                                          │          │
+│   └────────┬─────────┘       │                                          │          │
+│            ▼                 │                                          │          │
+│   ┌──────────────────┐       │                                          │          │
+│   │promote_to_blocks │       │                                          │          │
+│   └────────┬─────────┘       │                                          │          │
+│            ▼                 │                                          │          │
+│   ┌──────────────────┐       │                                          │          │
+│   │context_pack     │       │                                          │          │
+│   └────────┬─────────┘       │                                          │          │
+│            │                 │                                          │          │
+│            └─────────────────┴──────────────────────┬───────────────────┘          │
+│                                                     │                               │
+│                                                     ▼                               │
+│                                            ┌──────────────────┐                     │
+│                                            │ compose_answer   │                     │
+│                                            └────────┬─────────┘                     │
+│                                                     ▼                               │
+│                                            ┌──────────────────┐                     │
+│                                            │   validate       │                     │
+│                                            │   (END)          │                     │
+│                                            └──────────────────┘                     │
+│                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                          3. DATA PROCESSING NODES                                    │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│  [1] Preprocess       → Text normalization, PII masking, stopword removal            │
+│  [2] ParseQuery       → Intent classification + LLM slot extraction (Ollama)        │
+│  [3] ExpandQuery      → Query expansion with domain vocabulary (Ollama)             │
+│  [4] Route            → Conditional logic for pipeline branching                     │
+│  [5] Clarify          → Clarification questions for ambiguous queries                │
+│  [6] RetrieveFindings → Two-stage hybrid search (ES + Qdrant), doc filtering         │
+│  [7] RetrieveChunks   → Section-based chunk retrieval, hybrid search                 │
+│  [8] PromoteToBlocks  → Chunk aggregation, ranking, keyword filtering                │
+│  [9] ContextPack      → Format & pack blocks, generate citations                     │
+│  [10] ComposeAnswer   → LLM answer generation (Ollama)                               │
+│  [11] Validate        → Final validation & fallback handling                         │
+│                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                       4. BACKEND COMPONENTS & SERVICES                               │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐  │
+│  │ ELASTICSEARCH (BM25 Full-Text Search)                                        │  │
+│  │ ├─ Indices: "findings", "chunks"                                            │  │
+│  │ ├─ Connection: http://localhost:9200 (configurable)                         │  │
+│  │ ├─ Operations: Text search, aggregations, keyword filtering                 │  │
+│  │ └─ Performance: Single query for keyword frequency (15x improvement)         │  │
+│  └──────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                       │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐  │
+│  │ QDRANT (Vector Similarity Search)                                            │  │
+│  │ ├─ Collections: "findings_vectors", "chunks_vectors"                        │  │
+│  │ ├─ Path: ./qdrant_storage (local) or http://localhost:6333 (server)         │  │
+│  │ ├─ Embeddings: BAAI/bge-m3 (1024-dim)                                       │  │
+│  │ ├─ Operations: Vector search, filtering, RRF fusion                         │  │
+│  │ └─ Threshold: 0.35 (default), 0.65 (multi-keyword)                          │  │
+│  └──────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                       │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐  │
+│  │ OLLAMA (Local LLM)                                                           │  │
+│  │ ├─ Endpoint: http://localhost:11434/api/generate                            │  │
+│  │ ├─ Model: gemma3:12b (configurable)                                         │  │
+│  │ ├─ Temperature: 0.1 (deterministic)                                         │  │
+│  │ ├─ Calls: ParseQuery, ExpandQuery, ComposeAnswer                            │  │
+│  │ └─ Timeout: 60 seconds with fallback handling                               │  │
+│  └──────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                       │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐  │
+│  │ POSTGRESQL (Metadata Store)                                                  │  │
+│  │ ├─ Database: "ragdb" (postgresql://localhost:5432)                          │  │
+│  │ ├─ Tables: documents, table_rows, findings, chunks, row_finding_map         │  │
+│  │ └─ Purpose: Data ingestion & metadata storage                               │  │
+│  └──────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                        5. HYBRID SEARCH STRATEGY (RRF)                               │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│  Stage 1: RETRIEVE FINDINGS (ES + Qdrant)                                            │
+│  ├─ Keywords from query expansion (must_have)                                       │
+│  ├─ Document-level filtering:                                                       │
+│  │  └─ 2+ keywords: Intersection (AND), fallback to Union (OR)                      │
+│  ├─ ES Search: Top-k BM25 results (top_k=150)                                       │
+│  ├─ Qdrant Search: Vector similarity (if 2+ keywords, threshold=0.65)               │
+│  ├─ RRF Fusion: Merge ES + Qdrant rankings (k=60)                                   │
+│  └─ Output: 30 findings with scores                                                 │
+│                                                                                       │
+│  Stage 2: RETRIEVE CHUNKS BY SECTION (ES + Qdrant)                                   │
+│  ├─ For each finding, retrieve chunks from:                                         │
+│  │  ├─ "조사착안" (Investigation Findings)                                           │
+│  │  └─ "조사기법" (Investigation Techniques)                                         │
+│  ├─ ES Search per section (top_k=300)                                               │
+│  ├─ Qdrant Search per section (top_k=300)                                           │
+│  ├─ RRF Fusion per section                                                          │
+│  └─ Document-level filter if available (target_doc_ids)                             │
+│                                                                                       │
+│  Stage 3: PROMOTE TO BLOCKS & RANKING                                                │
+│  ├─ Group chunks by finding_id                                                      │
+│  ├─ Intersection priority: Findings with chunks in BOTH sections                    │
+│  ├─ Blending: If intersection < 2, use 5:5 union (equal weights)                    │
+│  ├─ Block score: Average of top-3 chunk scores                                      │
+│  ├─ Keyword filtering (2+ keywords):                                                │
+│  │  ├─ Full match: Block contains any block-level keyword → INCLUDE                │
+│  │  ├─ Partial match: Only doc-level keyword → EXCLUDE (additional info)           │
+│  │  └─ No match → EXCLUDE                                                          │
+│  └─ Output: 3 ranked blocks (configurable max_blocks_per_doc=2)                    │
+│                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                        6. OUTPUT FLOW & RESPONSE GENERATION                          │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│  ContextPack (Format blocks)                                                         │
+│    ├─ Create block headers (doc_id, finding_id, item, code)                         │
+│    ├─ Group chunks by section                                                       │
+│    ├─ Merge adjacent chunks                                                         │
+│    ├─ Add page/line citations                                                       │
+│    └─ Respect token budget (4000 tokens)                                            │
+│                                                                                       │
+│  ComposeAnswer (Generate with LLM)                                                   │
+│    ├─ Input: packed_text, user_query                                                │
+│    ├─ LLM prompt: Include all cases, use card format, cite sources                  │
+│    ├─ Output:                                                                       │
+│    │  ├─ Search strategy explanation (if 2+ keywords)                               │
+│    │  ├─ Main answer (LLM-generated content)                                        │
+│    │  ├─ Citation section (references)                                              │
+│    │  └─ Additional information (excluded blocks, if applicable)                     │
+│    └─ Temperature: 0.1 (deterministic)                                              │
+│                                                                                       │
+│  Validate (Quality Check)                                                            │
+│    ├─ Check: Error exists?                                                          │
+│    ├─ Check: Answer generated?                                                      │
+│    ├─ Check: Citations included?                                                    │
+│    ├─ Check: Blocks found?                                                          │
+│    └─ Add warnings if needed                                                        │
+│                                                                                       │
+│  Return to User                                                                      │
+│    ├─ Console output (formatted markdown)                                           │
+│    └─ Answer string (for programmatic use)                                          │
+│                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                        7. KEY CONFIGURATION PARAMETERS                               │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│  Retrieval Thresholds:                                                               │
+│  ├─ FINDINGS_FINAL_TOP_N = 30 (findings returned from stage 1)                      │
+│  ├─ BLOCKS_FINAL_TOP_N = 3 (blocks in final answer)                                 │
+│  ├─ MAX_BLOCKS_PER_DOC = 2 (blocks per document for diversity)                      │
+│  ├─ QDRANT_SCORE_THRESHOLD = 0.35 (vector match threshold)                         │
+│  └─ CONFIDENCE_THRESHOLD = 0.4 (for clarification)                                  │
+│                                                                                       │
+│  Scoring Weights:                                                                    │
+│  ├─ ALPHA_BM25 = 0.5 (Elasticsearch BM25)                                           │
+│  ├─ BETA_VECTOR = 0.4 (Qdrant vector)                                               │
+│  ├─ GAMMA_FIELD = 0.1 (Field-specific)                                              │
+│  ├─ WEIGHT_SECTION_CHAKAN = 0.5 (조사착안 weight)                                   │
+│  └─ WEIGHT_SECTION_GIHUB = 0.5 (조사기법 weight)                                    │
+│                                                                                       │
+│  Context & Output:                                                                   │
+│  ├─ CONTEXT_TOKEN_BUDGET = 4000 (max tokens for context)                            │
+│  ├─ CONTEXT_CHUNKS_PER_BLOCK = 3 (max chunks per block)                             │
+│  └─ CONTEXT_MERGE_ADJACENT = True (merge consecutive chunks)                        │
+│                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
