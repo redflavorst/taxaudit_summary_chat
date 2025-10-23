@@ -43,7 +43,15 @@ def create_database():
             """CREATE TABLE IF NOT EXISTS documents (
                 doc_id VARCHAR(50) PRIMARY KEY,
                 title TEXT,
-                source_path TEXT
+                source_path TEXT,
+                entity_type VARCHAR(20),
+                industry_name TEXT,
+                industry_code VARCHAR(20),
+                audit_type VARCHAR(50),
+                revenue_bracket VARCHAR(50),
+                audit_office VARCHAR(50),
+                overview_raw TEXT,
+                overview_content TEXT
             )""",
             
             """CREATE TABLE IF NOT EXISTS table_rows (

@@ -1,13 +1,14 @@
 """
-모든 데이터 삭제 스크립트
-- Elasticsearch 인덱스 삭제 (findings, chunks, law_references)
-- Qdrant 컬렉션 삭제 (findings_vectors, chunks_vectors, law_references_vectors)
-- PostgreSQL은 수동으로 삭제 (DROP DATABASE ragdb)
+전체 데이터 삭제 스크립트
+- PostgreSQL: 모든 테이블 데이터 삭제 (TRUNCATE)
+- Elasticsearch: 모든 인덱스 삭제
+- Qdrant: 모든 컬렉션 및 로컬 스토리지 삭제
 """
 import sys
 import os
 sys.path.append(os.path.dirname(__file__))
 
+import psycopg2
 from elasticsearch import Elasticsearch
 from config import settings
 from vectorstore.qdrant_client import get_qdrant_client, COLLECTION_FINDINGS, COLLECTION_CHUNKS, COLLECTION_LAWS
@@ -102,40 +103,71 @@ def clear_qdrant_storage_files():
             print(f"  - Not found: {storage_path}")
 
 
+def clear_postgresql():
+    """PostgreSQL 모든 테이블 데이터 삭제 (TRUNCATE)"""
+    print("\n" + "="*70)
+    print("Clearing PostgreSQL tables...")
+    print("="*70)
+    
+    try:
+        conn = psycopg2.connect(settings.PG_DSN)
+        conn.set_client_encoding('UTF8')
+        cur = conn.cursor()
+        
+        tables = ["law_references", "chunks", "row_finding_map", "findings", "table_rows", "documents"]
+        
+        for table in tables:
+            try:
+                cur.execute(f"TRUNCATE TABLE {table} CASCADE")
+                print(f"  ✓ Cleared table: {table}")
+            except Exception as e:
+                print(f"  - Table not found or error: {table} ({e})")
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        print("\nPostgreSQL tables cleared successfully!")
+        
+    except Exception as e:
+        print(f"  ✗ PostgreSQL error: {type(e).__name__}: {e}")
+        print("  (Database may not exist or not accessible)")
+
+
 def main():
     print("\n" + "="*70)
-    print("CLEAR ALL DATA (Elasticsearch + Qdrant)")
+    print("전체 데이터 삭제 (PostgreSQL + Elasticsearch + Qdrant)")
     print("="*70)
-    print("\nThis will delete:")
-    print("  - Elasticsearch indices: findings, chunks, law_references")
-    print("  - Qdrant collections: findings_vectors, chunks_vectors, law_references_vectors")
-    print("  - Qdrant storage files (if using local storage)")
-    print("\nPostgreSQL database is NOT deleted. Run manually if needed:")
-    print("  psql -U postgres -c 'DROP DATABASE IF EXISTS ragdb;'")
+    print("\n삭제될 데이터:")
+    print("  - PostgreSQL: documents, findings, chunks, law_references 등 모든 테이블")
+    print("  - Elasticsearch: findings, chunks, law_references 인덱스")
+    print("  - Qdrant: findings_vectors, chunks_vectors, law_references_vectors 컬렉션")
+    print("  - Qdrant 로컬 스토리지 파일 (사용 중인 경우)")
     
-    confirm = input("\nContinue? (yes/no): ").strip().lower()
+    confirm = input("\n계속하시겠습니까? (yes/no): ").strip().lower()
     
     if confirm != 'yes':
-        print("\nCancelled.")
+        print("\n취소되었습니다.")
         return
     
-    # 1. Elasticsearch 삭제
+    # 1. PostgreSQL 삭제
+    clear_postgresql()
+    
+    # 2. Elasticsearch 삭제
     clear_elasticsearch()
     
-    # 2. Qdrant 삭제
+    # 3. Qdrant 삭제
     clear_qdrant()
     
-    # 3. Qdrant 스토리지 파일 삭제 (로컬 모드인 경우)
-    if settings.QDRANT_URL.startswith("path:"):
+    # 4. Qdrant 스토리지 파일 삭제 (로컬 모드인 경우)
+    if hasattr(settings, 'QDRANT_PATH'):
         clear_qdrant_storage_files()
     
     print("\n" + "="*70)
-    print("ALL DATA CLEARED!")
+    print("✅ 모든 데이터가 삭제되었습니다!")
     print("="*70)
-    print("\nNext steps:")
-    print("  1. (Optional) Drop PostgreSQL: psql -U postgres -c 'DROP DATABASE IF EXISTS ragdb;'")
-    print("  2. Recreate database: python create_database.py")
-    print("  3. Run pipeline: python ../pipeline_full.py")
+    print("\n다음 단계:")
+    print("  1. 데이터 재인제스트: python run_ingest.py")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,10 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+# create_db 디렉토리를 sys.path에 추가
+create_db_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if create_db_dir not in sys.path:
+    sys.path.insert(0, create_db_dir)
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (

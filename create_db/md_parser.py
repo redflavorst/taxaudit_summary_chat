@@ -18,6 +18,120 @@ def get_line_number(text: str, position: int) -> int:
     """텍스트 내 위치에서 라인 번호 계산 (1-based)"""
     return text[:position].count('\n') + 1
 
+def parse_overview_content(md: str) -> str:
+    """
+    조사대상개요 부터 적출성과 전까지의 내용 추출
+    - 시작: "가.", "나.", "1.", "2." 등 + "조사대상개요" 또는 "조사법인업황"
+    - 끝: 아무 위치의 "적출성과" 또는 다음 섹션
+    - 헤더 레벨(###) 있거나 없음
+    - 모든 단어 사이 띄어쓰기 허용
+    """
+    # 패턴 1: ### [가-하]/[1-9]. 조사대상개요/조사법인업황 (헤더 레벨 있음)
+    pattern1 = r'###\s*(?:[가-하]|\d)\.\s*(?:조사\s*대상\s*개요|조사\s*법인\s*업황)(.*?)(?=###\s*[가-하]\.\s*적출\s*성과|###\s*\d\.\s*적출\s*성과|$)'
+    match = re.search(pattern1, md, re.DOTALL | re.IGNORECASE)
+    
+    if match:
+        content = match.group(1).strip()
+        return content
+    
+    # 패턴 2: [가-하]/[1-9]. 조사대상개요/조사법인업황 (헤더 레벨 없음)
+    pattern2 = r'(?:[가-하]|\d)\.\s*(?:조사\s*대상\s*개요|조사\s*법인\s*업황)(.*?)(?=###\s*[가-하]\.\s*적출\s*성과|[가-하]\.\s*적출\s*성과|###\s*\d\.\s*적출\s*성과|\d\.\s*적출\s*성과|$)'
+    match = re.search(pattern2, md, re.DOTALL | re.IGNORECASE)
+    
+    if match:
+        content = match.group(1).strip()
+        return content
+    
+    return None
+
+def parse_overview_table(md: str) -> Dict:
+    """
+    조사대상개요 테이블 파싱
+    | 개인·법인 | 업종(코드) | 조사유형 | 외형구간 | 조사청 |
+    또는 텍스트 형식:
+    개인·법인
+    업종(코드)
+    ...
+    """
+    overview_data = {
+        "entity_type": None,
+        "industry_name": None,
+        "industry_code": None,
+        "audit_type": None,
+        "revenue_bracket": None,
+        "audit_office": None,
+        "overview_raw": None,
+        "overview_content": None
+    }
+    
+    overview_section = md.split("## 적출")[0] if "## 적출" in md else ""
+    if not overview_section:
+        overview_section = md.split("## Ⅰ.조사성과")[0] if "## Ⅰ.조사성과" in md else md[:3000]
+    
+    lines = overview_section.split('\n')
+    
+    # 패턴 1: 테이블 형식
+    for i, line in enumerate(lines):
+        if '개인·법인' in line or '개인법인' in line:
+            if i + 2 < len(lines) and '|' in lines[i + 2]:
+                data_line = lines[i + 2]
+                cols = [c.strip() for c in data_line.strip('|').split('|')]
+                
+                if len(cols) >= 5:
+                    overview_data["entity_type"] = cols[0] if cols[0] else None
+                    
+                    industry_col = cols[1]
+                    code_match = re.search(r'\((\d+)\)', industry_col)
+                    if code_match:
+                        overview_data["industry_code"] = code_match.group(1)
+                        overview_data["industry_name"] = industry_col.split('(')[0].strip()
+                    elif re.match(r'^\d+$', industry_col.strip()):
+                        overview_data["industry_code"] = industry_col.strip()
+                    else:
+                        overview_data["industry_name"] = industry_col.strip()
+                    
+                    overview_data["audit_type"] = cols[2] if cols[2] else None
+                    overview_data["revenue_bracket"] = cols[3] if cols[3] else None
+                    overview_data["audit_office"] = cols[4] if cols[4] else None
+                    overview_data["overview_raw"] = data_line.strip()
+                break
+    
+    # 패턴 2: 텍스트 형식 (테이블로 추출 안 된 경우)
+    if not overview_data["entity_type"]:
+        for i, line in enumerate(lines):
+            if '개인·법인' in line:
+                # 다음 5줄 읽기
+                if i + 5 < len(lines):
+                    header_line = line
+                    if '업종(코드)' in lines[i+1] and '조사유형' in lines[i+2]:
+                        # 헤더 다음 데이터 찾기
+                        data_start = i + 5
+                        if data_start < len(lines):
+                            entity = lines[data_start].strip()
+                            industry_line = lines[data_start+1].strip() if data_start+1 < len(lines) else ""
+                            industry_code_line = lines[data_start+2].strip() if data_start+2 < len(lines) else ""
+                            audit_type = lines[data_start+3].strip() if data_start+3 < len(lines) else ""
+                            revenue = lines[data_start+4].strip() if data_start+4 < len(lines) else ""
+                            office = lines[data_start+5].strip() if data_start+5 < len(lines) else ""
+                            
+                            overview_data["entity_type"] = entity if entity else None
+                            overview_data["industry_name"] = industry_line if industry_line else None
+                            
+                            # 업종코드 추출
+                            code_match = re.search(r'\((\d+)\)', industry_code_line)
+                            if code_match:
+                                overview_data["industry_code"] = code_match.group(1)
+                            
+                            overview_data["audit_type"] = audit_type if audit_type else None
+                            overview_data["revenue_bracket"] = revenue if revenue else None
+                            overview_data["audit_office"] = office if office else None
+                            overview_data["overview_raw"] = f"{entity}|{industry_line}|{audit_type}|{revenue}|{office}"
+                        break
+    
+    overview_data["overview_content"] = parse_overview_content(md)
+    
+    return overview_data
+
 def parse_table_rows(md: str, doc_id: str):
     rows = []
     for m in ROW_RE.finditer(md):

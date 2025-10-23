@@ -22,7 +22,7 @@ import psycopg2
 from psycopg2 import sql
 
 from md_loader import load_markdown
-from md_parser import parse_doc_id, parse_table_rows, parse_findings, parse_law_references
+from md_parser import parse_doc_id, parse_table_rows, parse_findings, parse_law_references, parse_overview_table
 from linker import link_rows_findings
 from chunker import make_chunks_for_finding
 from pg_dao import upsert_many
@@ -160,6 +160,7 @@ def main(md_paths):
         doc_id = parse_doc_id(md)
         print(f"  - Document ID: {doc_id}")
 
+        overview_data = parse_overview_table(md)
         rows = parse_table_rows(md, doc_id)
         findings = parse_findings(md, doc_id)
         
@@ -180,7 +181,10 @@ def main(md_paths):
         )
 
         print(f"  - Parsed: {len(rows)} rows, {len(findings)} findings, {len(law_refs)} law_references")
-        print(f"  - Meta: industry={meta_extracted.get('industry_sub')}, "
+        print(f"  - Overview: entity={overview_data.get('entity_type')}, "
+              f"industry={overview_data.get('industry_name')}({overview_data.get('industry_code')}), "
+              f"audit_type={overview_data.get('audit_type')}")
+        print(f"  - Meta: industry_sub={meta_extracted.get('industry_sub')}, "
               f"tags={meta_extracted.get('domain_tags')}, actions={meta_extracted.get('actions')}")
         for f in findings:
             print(
@@ -220,12 +224,20 @@ def main(md_paths):
         for f_idx in findings_for_index:
             f_idx["chunk_count"] = chunk_count_by_finding.get(f_idx["finding_id"], 0)
 
-        upsert_many(
-            conn,
-            "documents",
-            [{"doc_id": doc_id, "title": Path(mp).name, "source_path": str(mp)}],
-            "doc_id",
-        )
+        doc_record = {
+            "doc_id": doc_id,
+            "title": Path(mp).name,
+            "source_path": str(mp),
+            "entity_type": overview_data.get("entity_type"),
+            "industry_name": overview_data.get("industry_name"),
+            "industry_code": overview_data.get("industry_code"),
+            "audit_type": overview_data.get("audit_type"),
+            "revenue_bracket": overview_data.get("revenue_bracket"),
+            "audit_office": overview_data.get("audit_office"),
+            "overview_raw": overview_data.get("overview_raw"),
+            "overview_content": overview_data.get("overview_content")
+        }
+        upsert_many(conn, "documents", [doc_record], "doc_id")
         upsert_many(conn, "table_rows", rows, "row_id")
         upsert_many(conn, "findings", findings, "finding_id")
         upsert_many(conn, "row_finding_map", maps, "map_id")
@@ -241,10 +253,13 @@ def main(md_paths):
             doc_meta = {
                 doc_id: {
                     "doc_title": Path(mp).name,
-                    "industry_sub": meta_extracted.get("industry_sub"),
-                    "domain_tags": meta_extracted.get("domain_tags", []),
-                    "actions": meta_extracted.get("actions", []),
-                    "entities": meta_extracted.get("entities", []),
+                    "entity_type": overview_data.get("entity_type"),
+                    "industry_name": overview_data.get("industry_name"),
+                    "industry_code": overview_data.get("industry_code"),
+                    "audit_type": overview_data.get("audit_type"),
+                    "revenue_bracket": overview_data.get("revenue_bracket"),
+                    "audit_office": overview_data.get("audit_office"),
+                    "overview_content": overview_data.get("overview_content"),
                     "overview_keywords_norm": meta_extracted.get("overview_keywords_norm", []),
                 }
             }
@@ -264,17 +279,36 @@ def main(md_paths):
     
     if settings.USE_QDRANT:
         try:
-            from vectorstore.upsert_vectors import run_all as upsert_vectorstore
+            # vectorstore 모듈 import를 위한 경로 추가
+            current_dir = Path(__file__).parent.resolve()
+            if str(current_dir) not in sys.path:
+                sys.path.insert(0, str(current_dir))
+            
+            # 동적 import로 모듈 로드
+            import importlib.util
+            upsert_module_path = current_dir / "vectorstore" / "upsert_vectors.py"
+            
+            spec = importlib.util.spec_from_file_location("vectorstore.upsert_vectors", upsert_module_path)
+            upsert_module = importlib.util.module_from_spec(spec)
+            sys.modules["vectorstore.upsert_vectors"] = upsert_module
+            spec.loader.exec_module(upsert_module)
+            
             print("\nUpserting to Qdrant vectorstore...")
-            upsert_vectorstore()
+            upsert_module.run_all()
+        except ImportError as e:
+            print(f"  - Qdrant upsert skipped (module not found): {e}")
         except Exception as e:
             print(f"  - Qdrant upsert skipped: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
-    main(
-        [
-            r"D:\PythonProject\llm\taxaudit_summary_chat\output\2024(하)-2-(328)\2024(하)-2-(328)_layout.md",
-            r"D:\PythonProject\llm\taxaudit_summary_chat\output\2025(상)-1-(14)\2025(상)-1-(14)_layout.md",
-        ]
-    )
+    # output 폴더의 모든 _layout.md 파일 자동 검색
+    output_dir = Path(__file__).parent.parent / "output"
+    md_files = sorted(output_dir.glob("**/*_layout.md"))
+    md_paths = [str(p) for p in md_files]
+    
+    if not md_paths:
+        print("No markdown files found in output directory")
+    else:
+        print(f"Found {len(md_paths)} markdown files to process")
+        main(md_paths)

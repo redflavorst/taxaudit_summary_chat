@@ -1,12 +1,16 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+# create_db 디렉토리를 sys.path에 추가
+create_db_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if create_db_dir not in sys.path:
+    sys.path.insert(0, create_db_dir)
 
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from typing import List
-from create_db.config import settings
-from create_db.vectorstore.utils import l2_normalize
+from config import settings
+from vectorstore.utils import l2_normalize
 
 class Embedder:
     def __init__(self, model_name: str = None, normalize: bool = True):

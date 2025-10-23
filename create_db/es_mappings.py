@@ -67,22 +67,20 @@ FINDINGS_MAPPING = {
                 "analyzer": "korean_analyzer"
             },
             
-            # 분류 필드 (keyword + normalizer)
-            "industry_sub": {
-                "type": "keyword",
-                "normalizer": "lowercase_normalizer"
+            # 조사대상개요 (인적사항)
+            "entity_type": {"type": "keyword"},
+            "industry_name": {
+                "type": "text",
+                "analyzer": "korean_analyzer",
+                "fields": {"keyword": {"type": "keyword"}}
             },
-            "domain_tags": {
-                "type": "keyword",
-                "normalizer": "lowercase_normalizer"
-            },
-            "actions": {
-                "type": "keyword",
-                "normalizer": "lowercase_normalizer"
-            },
-            "entities": {
-                "type": "keyword",
-                "normalizer": "lowercase_normalizer"
+            "industry_code": {"type": "keyword"},
+            "audit_type": {"type": "keyword"},
+            "revenue_bracket": {"type": "keyword"},
+            "audit_office": {"type": "keyword"},
+            "overview_content": {
+                "type": "text",
+                "analyzer": "korean_analyzer"
             },
             
             # 섹션 정보 (nested for precise querying)

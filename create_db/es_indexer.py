@@ -70,11 +70,14 @@ def index_findings(es: Elasticsearch, index: str, findings, doc_meta_by_docid, r
             "reason_kw_norm": reason_kw_norm,
             "overview_keywords": " ".join(overview_keywords) if overview_keywords else "",
             
-            # 분류
-            "industry_sub": meta.get("industry_sub"),
-            "domain_tags": meta.get("domain_tags", []),
-            "actions": meta.get("actions", []),
-            "entities": meta.get("entities", []),
+            # 조사대상개요 (인적사항)
+            "entity_type": meta.get("entity_type"),
+            "industry_name": meta.get("industry_name"),
+            "industry_code": meta.get("industry_code"),
+            "audit_type": meta.get("audit_type"),
+            "revenue_bracket": meta.get("revenue_bracket"),
+            "audit_office": meta.get("audit_office"),
+            "overview_content": meta.get("overview_content"),
             
             # 섹션
             "sections_present": f.get("sections_present", []),
@@ -92,7 +95,7 @@ def index_findings(es: Elasticsearch, index: str, findings, doc_meta_by_docid, r
             
             # 메타
             "created_at": datetime.utcnow().isoformat() + "Z",
-            "extraction_version": "v0.4.0"
+            "extraction_version": "v0.5.0"
         }
         actions.append({"_index": index, "_id": f["finding_id"], "_source": src})
     

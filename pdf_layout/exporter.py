@@ -132,6 +132,35 @@ def _format_markdown_table(raw_text: str, doc_id: str = None) -> str:
         flat = [r[0] for r in rows if r[0]]
         length = len(flat)
 
+        # 조사대상개요 테이블 패턴 감지
+        overview_headers = ["개인·법인", "개인법인", "업종(코드)", "조사유형", "외형구간", "조사청"]
+        if length >= 10 and any(h in flat[0] for h in overview_headers[:2]):
+            # 첫 5개가 헤더로 가정
+            if "개인" in flat[5] or "법인" in flat[5]:
+                header_row = flat[:5]
+                
+                # 데이터 부분 처리: (코드) 형식이 별도 라인일 수 있음
+                data_part = flat[5:]
+                data_row = []
+                i = 0
+                while i < len(data_part) and len(data_row) < 5:
+                    cell = data_part[i]
+                    # 다음 셀이 (숫자) 형식이면 합치기
+                    if i + 1 < len(data_part) and data_part[i + 1].startswith("(") and data_part[i + 1].endswith(")"):
+                        cell = cell + data_part[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                    data_row.append(cell)
+                
+                if len(data_row) == 5:
+                    lines = [
+                        "| " + " | ".join(header_row) + " |",
+                        "| " + " | ".join(["---"] * 5) + " |",
+                        "| " + " | ".join(data_row) + " |",
+                    ]
+                    return "\n".join(lines)
+
         roman_pattern = re.compile(r"^[\u2460-\u2473]+$")
         code_pattern = re.compile(r"^\d{3,6}$")
         roman_positions = [idx for idx, token in enumerate(flat) if roman_pattern.match(token)]
@@ -302,7 +331,7 @@ def _extract_major_items(all_items: List[dict], doc_id: str = None) -> List[tupl
 
 def _extract_doc_id(filename: str) -> str:
     """파일명에서 doc_id 추출
-    예: 2025(s)-1-(24)_layout -> 2025S-001-24
+    예: 2025(상)-1-(24)_layout -> 2025S-001-24
     """
     import re
     
@@ -310,13 +339,13 @@ def _extract_doc_id(filename: str) -> str:
     base_name = os.path.basename(filename)
     base_name = base_name.replace('_layout', '').replace('.md', '')
     
-    # 패턴 매칭: 연도(s/h)-숫자-(숫자)
-    pattern = r'(\d{4})\(([sh])\)-(\d+)-\((\d+)\)'
+    # 패턴 매칭: 연도(상/하)-숫자-(숫자)
+    pattern = r'(\d{4})\(([상하])\)-(\d+)-\((\d+)\)'
     match = re.match(pattern, base_name)
     
     if match:
         year = match.group(1)
-        semester = 'S' if match.group(2) == 's' else 'H'
+        semester = 'S' if match.group(2) == '상' else 'H'
         middle_num = match.group(3).zfill(3)  # 3자리로 패딩
         last_num = match.group(4)
         
@@ -426,48 +455,25 @@ def export_markdown(pages: Dict[int, List[dict]], out_path: str) -> None:
             i += 1
             continue
         
-        # 가. 조사대상개요가 합쳐진 경우
-        elif "가. 조사대상개요" in text or "가.조사대상개요" in text or text == "가. 조사대상개요":
+        # [가-하]. 섹션 헤더 처리 (일반 패턴)
+        if re.match(r'^[가-하]\.\s*.+', text):
             _flush_buffer(lines, text_buffer)
-            lines.append("### 가. 조사대상개요")
+            match = re.match(r'^([가-하])\.\s*(.+)$', text)
+            section_letter = match.group(1)
+            section_title = match.group(2).strip()
+            # 불필요한 기호 제거
+            section_title = re.sub(r'[〈〉《》「」『』\[\]【】]', '', section_title).strip()
+            lines.append(f"### {section_letter}. {section_title}")
             lines.append("")
             i += 1
             continue
         
-        # 가 다음에 조사대상개요가 오는 경우 (분리된 경우)
-        elif text in ["가", "가."] and i + 1 < len(all_items):
-            next_text = (all_items[i + 1].get("content") or "").strip()
-            if "조사대상개요" in next_text:
-                _flush_buffer(lines, text_buffer)
-                lines.append("### 가. 조사대상개요")
-                lines.append("")
-                i += 2
-                continue
-        
-        # 나. 적출성과가 합쳐진 경우
-        elif "나. 적출성과" in text or "나.적출성과" in text or text == "나. 적출성과":
-            _flush_buffer(lines, text_buffer)
-            lines.append("### 나. 적출성과")
-            lines.append("")
-            i += 1
-            continue
-        
-        # 나 다음에 적출성과가 오는 경우 (분리된 경우)
-        elif text in ["나", "나."] and i + 1 < len(all_items):
-            next_text = (all_items[i + 1].get("content") or "").strip()
-            if "적출성과" in next_text:
-                _flush_buffer(lines, text_buffer)
-                lines.append("### 나. 적출성과")
-                lines.append("")
-                i += 2
-                continue
-        
-        # 조사노하우 섹션에서 적출테이블 처리
-        if in_josa_tip and item.get("type") in TABLE_TYPES:
+        # yellow_table 처리 (조사대상개요, 적출테이블 등)
+        if item.get("type") in TABLE_TYPES:
             _flush_buffer(lines, text_buffer)  # 테이블 전에 버퍼 비우기
             table_content = _format_markdown_table(text, doc_id)
-            # 적출테이블인지 확인
-            if "| 적출 |" in table_content:
+            # 적출테이블인지 확인 (조사노하우 섹션 내에서만)
+            if in_josa_tip and "| 적출 |" in table_content:
                 # 주요적출내역이 있으면 헤더 추가
                 if josa_jeokchul_count < len(major_items):
                     item_name, code = major_items[josa_jeokchul_count]
@@ -475,9 +481,7 @@ def export_markdown(pages: Dict[int, List[dict]], out_path: str) -> None:
                     lines.append(f"### 적출 {josa_jeokchul_count + 1}. {item_name} <!-- finding_id: {finding_id} -->")
                     lines.append("")
                     josa_jeokchul_count += 1
-                lines.append(table_content)
-            else:
-                lines.append(table_content)
+            lines.append(table_content)
             lines.append("")
         # 헤더가 아닌 일반 콘텐츠 처리
         elif item.get("type") == "law_table":
